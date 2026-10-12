@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  OK in-app WebView bridge probe (benign).
+  Host this on any trusted-HTTPS origin (GitHub Pages / raw.githack / your domain),
+  then open it inside OK via the apphook deeplink:
+    odnoklassniki://ok.ru/apphook/intlink?url=<THIS PAGE URL, url-encoded>
+  It only READS window.OKApp and shows the result. It performs no harmful action.
+-->
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;font-size:24px;padding:20px;line-height:1.5">
+<h2>OK bridge probe</h2>
+<pre id="out" style="white-space:pre-wrap;word-break:break-word">running…</pre>
+<script>
+(function () {
+  var out = document.getElementById('out');
+  function line(s){ out.textContent += "\n" + s; }
+  out.textContent = "origin: " + location.origin;
+
+  var names = ["OKApp","hookjs","notificationFilters","okAppBackInterceptor","subtitle","DATA_PAGE_CONFIG"];
+  names.forEach(function(n){
+    line((typeof window[n] !== "undefined" ? "[REACHABLE] " : "[absent]    ") + "window." + n);
+  });
+
+  if (window.OKApp) {
+    var methods = [];
+    for (var k in window.OKApp) { methods.push(k); }
+    line("\nOKApp = " + (typeof window.OKApp) + ", methods (" + methods.length + "):");
+    line("  " + methods.join(", "));
+    // Proof-of-reach WITHOUT side effects: call a read-only/no-op-ish bridge method.
+    // Uncomment ONLY the single minimal call your program's triage needs, e.g.:
+    // try { window.OKApp.webViewEvent("poc", "{}"); line("\ncalled OKApp.webViewEvent -> ok"); } catch(e){ line("call err: "+e); }
+  } else {
+    line("\nOKApp not present on this origin");
+  }
+})();
+</script>
+</body>
+</html>
