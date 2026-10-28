@@ -1,0 +1,78 @@
+<!doctype html>
+<!--
+  Dzen in-app WebView bridge probe (benign / read-only).
+  Load via PoC "Open URL in Dzen" button to check which JS bridges
+  are reachable from an attacker-controlled page in Dzen's WebView.
+-->
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dzen bridge probe</title>
+</head>
+<body style="font-family:sans-serif;font-size:16px;padding:20px;line-height:1.6">
+<h2>Dzen WebView Bridge Probe</h2>
+<pre id="out" style="white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:16px;border-radius:8px">running…</pre>
+<script>
+(function () {
+  var out = document.getElementById('out');
+  function line(s){ out.textContent += "\n" + s; }
+  out.textContent = "origin: " + location.origin;
+  line("href:   " + location.href);
+  line("ua:     " + navigator.userAgent);
+  line("");
+
+  var bridges = [
+    "AndroidBridge",
+    "AndroidJsObject",
+    "LiveVideoEmbedJSBridge",
+    "OKApp",
+    "vkAdsWebInterface",
+    "AppMetrica",
+    "AppMetricaInitializer"
+  ];
+
+  var found = 0;
+  bridges.forEach(function(name){
+    var present = (typeof window[name] !== "undefined");
+    line((present ? "[FOUND]   " : "[absent]  ") + "window." + name);
+    if (present) found++;
+  });
+
+  line("\n=== " + found + " bridge(s) reachable ===");
+
+  if (window.AndroidBridge) {
+    var methods = [];
+    for (var k in window.AndroidBridge) { methods.push(k); }
+    line("\nAndroidBridge type: " + (typeof window.AndroidBridge));
+    line("methods (" + methods.length + "):");
+    methods.sort();
+    methods.forEach(function(m){ line("  " + m); });
+
+    line("\n--- VKWebAppInit test (read-only) ---");
+    try {
+      window.AndroidBridge.VKWebAppInit("{}");
+      line("VKWebAppInit('{}') -> called OK");
+    } catch(e) {
+      line("VKWebAppInit error: " + e);
+    }
+  }
+
+  if (window.AndroidJsObject) {
+    var methods2 = [];
+    for (var k2 in window.AndroidJsObject) { methods2.push(k2); }
+    line("\nAndroidJsObject type: " + (typeof window.AndroidJsObject));
+    line("methods (" + methods2.length + "):");
+    methods2.sort();
+    methods2.forEach(function(m){ line("  " + m); });
+  }
+
+  if (found === 0) {
+    line("\nNo bridges found — this WebView does NOT expose native JS interfaces.");
+    line("Impact limited to intent-redirect (FLAG_GRANT_READ) as in Finding #1.");
+  } else {
+    line("\n*** BRIDGE REACHABLE from attacker origin! ***");
+    line("Combined with intent-redirect entry, attacker page can call native methods.");
+  }
+})();
+</script>
+</body>
+</html>
